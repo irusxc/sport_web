@@ -1,0 +1,85 @@
+.auth-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(1200px 600px at 80% -10%, #fff0eb 0%, rgba(255, 240, 235, 0) 55%),
+    radial-gradient(900px 500px at 10% 110%, #eeecff 0%, rgba(238, 236, 255, 0) 55%),
+    #f5f6f2;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 400px;
+  background: #fff;
+  border: 1px solid #e7e8e2;
+  border-radius: 20px;
+  padding: 32px 28px;
+  box-shadow: 0 24px 60px rgba(28, 30, 24, 0.10);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.auth-brand {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(135deg, #ff725e, #6256e8);
+}
+
+.auth-card h1 { font-size: 20px; margin: 0; color: #1c1e18; }
+.auth-sub { margin: 0; font-size: 14px; color: #6f736b; line-height: 1.6; }
+
+.auth-tabs { display: flex; gap: 8px; background: #f1f2ec; padding: 4px; border-radius: 10px; }
+.auth-tabs button {
+  flex: 1; border: 0; background: transparent; padding: 8px 0; border-radius: 8px;
+  font-size: 13px; color: #6f736b; cursor: pointer;
+}
+.auth-tabs button.active { background: #fff; color: #1c1e18; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06); }
+
+.auth-field { display: flex; flex-direction: column; gap: 6px; }
+.auth-field span { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #4a4e46; }
+.auth-field input {
+  border: 1px solid #e1e3dc; border-radius: 10px; padding: 10px 12px; font-size: 14px;
+  background: #fbfcfa; outline: none; width: 100%; box-sizing: border-box;
+}
+.auth-field input:focus { border-color: #6256e8; box-shadow: 0 0 0 3px #eeecff; }
+
+.auth-message { margin: 0; font-size: 13px; color: #2f7d46; }
+.auth-message.error { color: #c23b2a; }
+
+.auth-submit {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  border: 0; border-radius: 12px; padding: 12px; font-size: 15px; font-weight: 600;
+  color: #fff; background: linear-gradient(135deg, #ff725e, #ff8b6b); cursor: pointer;
+}
+.auth-submit:disabled { opacity: 0.7; cursor: default; }
+
+.auth-hint { margin: 0; font-size: 12px; color: #9a9e96; text-align: center; }
+
+.claim-list { display: flex; flex-direction: column; gap: 10px; }
+.claim-person {
+  display: flex; align-items: center; gap: 12px;
+  border: 1px solid #e7e8e2; border-radius: 14px; padding: 12px 16px;
+  background: #fff; cursor: pointer; font-size: 15px; color: #1c1e18;
+}
+.claim-person:hover { border-color: #c9cbc3; }
+.claim-person:disabled { cursor: default; opacity: 0.6; }
+.claim-avatar {
+  width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+  color: #fff; font-size: 15px; font-weight: 600; flex: none;
+}
+.claim-name { flex: 1; text-align: left; }
+
+.auth-link { border: 0; background: transparent; color: #6f736b; font-size: 13px; cursor: pointer; text-decoration: underline; }
+
+.auth-loading { align-items: center; text-align: center; gap: 12px; }
+.spin { animation: authspin 1s linear infinite; }
+@keyframes authspin { to { transform: rotate(360deg); } }

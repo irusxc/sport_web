@@ -12,6 +12,7 @@ import {
   ChevronRight,
   CircleHelp,
   ClipboardCheck,
+  Clock3,
   Dumbbell,
   Flame,
   Footprints,
@@ -55,6 +56,8 @@ import {
 } from './data'
 import { useAuth } from './auth'
 import { useRecords } from './records'
+import { useProfileSettings } from './settings'
+import { useActivity } from './activity'
 import { ClaimScreen, FullScreenLoader, LoginScreen } from './auth-ui'
 
 const ICONS = {
@@ -415,7 +418,7 @@ const createMealItem = (type, foodId = DEFAULT_FOOD_BY_MEAL[type], grams = 100) 
 
 const createDefaultMeals = () => MEAL_TYPES.map((type) => createMealItem(type))
 
-function CheckinModal({ isOpen, onClose, onSubmit, defaultDate, profileLock = null }) {
+function CheckinModal({ isOpen, onClose, onSubmit, defaultDate, profileLock = null, profileSettings = null }) {
   const [profileId, setProfileId] = useState(profileLock || PROFILES[0].id)
   const [date, setDate] = useState(toDateKey(defaultDate))
   const [weight, setWeight] = useState('56.3')
@@ -432,9 +435,9 @@ function CheckinModal({ isOpen, onClose, onSubmit, defaultDate, profileLock = nu
   }, [profileLock])
 
   useEffect(() => {
-    setWeight(profileId === 'lin' ? '56.3' : '74.4')
+    setWeight(String(profileSettings?.startWeight ?? (profileId === 'lin' ? 56.3 : 74.4)))
     setWater(profileId === 'lin' ? '1800' : '2400')
-  }, [profileId])
+  }, [profileId, profileSettings?.startWeight])
 
   if (!isOpen) return null
 
@@ -658,6 +661,141 @@ function ResetDataModal({ isOpen, onClose, onConfirm, recordCount, shared = fals
   )
 }
 
+function SettingsModal({ isOpen, onClose, profiles, settings, onSave, currentProfileId, onSignOut }) {
+  const [profileId, setProfileId] = useState(currentProfileId || PROFILES[0].id)
+  const [values, setValues] = useState(settings[profileId] || {})
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    if (currentProfileId) setProfileId(currentProfileId)
+  }, [currentProfileId, isOpen])
+
+  useEffect(() => {
+    setValues(settings[profileId] || {})
+    setMessage('')
+  }, [profileId, settings])
+
+  if (!isOpen) return null
+
+  const selectedProfile = PROFILES.find((person) => person.id === profileId)
+  const update = (key, value) => setValues((current) => ({ ...current, [key]: value }))
+
+  const submit = async (event) => {
+    event.preventDefault()
+    setBusy(true)
+    setMessage('')
+    const { error } = await onSave(profileId, {
+      targetCalories: Number(values.targetCalories),
+      targetWeight: Number(values.targetWeight),
+      startWeight: Number(values.startWeight),
+      height: Number(values.height),
+      weeklyGoal: Number(values.weeklyGoal),
+    })
+    setBusy(false)
+    if (error) {
+      setMessage(`保存失败：${error.message}`)
+      return
+    }
+    setMessage('目标已保存，并已同步到共享空间。')
+    window.setTimeout(onClose, 650)
+  }
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="settings-modal" role="dialog" aria-modal="true" aria-label="个人与目标设置">
+        <div className="modal-head">
+          <div>
+            <span className="section-kicker"><Settings size={14} /> PERSONAL GOALS</span>
+            <h2>个人与目标设置</h2>
+            <p>设置会同步到共享空间，并用于热量与体重进度计算。</p>
+          </div>
+          <button className="icon-button" onClick={onClose} aria-label="关闭"><X size={20} /></button>
+        </div>
+        <form onSubmit={submit} className="settings-form">
+          {profiles.length > 1 && (
+            <div className="settings-profile-select">
+              {profiles.map((person) => (
+                <button
+                  key={person.id}
+                  type="button"
+                  className={profileId === person.id ? 'active' : ''}
+                  onClick={() => setProfileId(person.id)}
+                >
+                  <Avatar profile={person} size="small" />
+                  <span>{person.name}{person.id === currentProfileId ? '（我）' : ''}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="settings-selected-person">
+            <Avatar profile={selectedProfile} size="medium" />
+            <div><strong>{selectedProfile?.name}</strong><span>用于个性化建议与进度计算</span></div>
+          </div>
+          <div className="settings-grid">
+            <label><span>每日建议摄入 <small>kcal</small></span><input required type="number" min="800" max="5000" value={values.targetCalories ?? ''} onChange={(event) => update('targetCalories', event.target.value)} /></label>
+            <label><span>目标体重 <small>kg</small></span><input required type="number" min="30" max="250" step="0.1" value={values.targetWeight ?? ''} onChange={(event) => update('targetWeight', event.target.value)} /></label>
+            <label><span>起始体重 <small>kg</small></span><input required type="number" min="30" max="300" step="0.1" value={values.startWeight ?? ''} onChange={(event) => update('startWeight', event.target.value)} /></label>
+            <label><span>身高 <small>cm</small></span><input required type="number" min="100" max="250" value={values.height ?? ''} onChange={(event) => update('height', event.target.value)} /></label>
+            <label><span>每周运动目标 <small>次</small></span><input required type="number" min="1" max="14" value={values.weeklyGoal ?? ''} onChange={(event) => update('weeklyGoal', event.target.value)} /></label>
+          </div>
+          <div className="settings-hint"><CircleHelp size={15} /> 建议摄入量为日常健康管理参考，请结合身体状况谨慎设置。</div>
+          {message && <p className={`settings-message ${message.startsWith('保存失败') ? 'error' : ''}`}>{message}</p>}
+          <div className="settings-actions">
+            {onSignOut && <button type="button" className="settings-signout" onClick={onSignOut}><LogOut size={15} /> 退出登录</button>}
+            <button type="button" className="outline-button" onClick={onClose}>取消</button>
+            <button type="submit" className="primary-button" disabled={busy}>{busy ? '保存中…' : <><Check size={16} /> 保存设置</>}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  )
+}
+
+function ActivityPopover({ isOpen, onClose, activities, loading, profiles, onClear }) {
+  if (!isOpen) return null
+
+  const personName = (id) => profiles.find((person) => person.id === id)?.name || '双燃'
+  const formatTime = (value) => {
+    const date = new Date(value)
+    return `${date.getMonth() + 1}月${date.getDate()}日 ${date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}`
+  }
+
+  return (
+    <>
+      <button className="popover-dismiss" aria-label="关闭通知" onClick={onClose} />
+      <section className="activity-popover" aria-label="活动与历史记录">
+        <div className="activity-popover-head">
+          <div><span className="panel-eyebrow">MEMORY LANE</span><h2>活动与历史记录</h2></div>
+          <button className="icon-button subtle" onClick={onClose} aria-label="关闭"><X size={17} /></button>
+        </div>
+        <div className="activity-summary"><Clock3 size={15} /><span>最近的打卡、初始化等操作会显示在这里</span></div>
+        <div className="activity-list">
+          {loading && <div className="activity-empty">正在加载活动记录…</div>}
+          {!loading && activities.length === 0 && (
+            <div className="activity-empty"><span><Bell size={19} /></span><strong>还没有历史记录</strong><p>完成打卡或初始化数据后，会在这里留下记录。</p></div>
+          )}
+          {!loading && activities.map((activity) => (
+            <article className="activity-entry" key={activity.id}>
+              <span className={`activity-entry-icon ${activity.type}`}>
+                {activity.type === 'reset' ? <Trash2 size={15} /> : activity.type === 'goal_update' ? <Settings size={15} /> : <Check size={15} />}
+              </span>
+              <div><strong>{activity.message}</strong><span>{personName(activity.profileId)} · {formatTime(activity.createdAt)}</span>
+                {activity.type === 'checkin' && <small>{activity.recordDate} · 摄入 {formatNumber(activity.calories)} kcal</small>}
+                {activity.type === 'reset' && <small>清除了 {activity.calories} 条记录</small>}
+              </div>
+            </article>
+          ))}
+        </div>
+        <div className="activity-popover-foot">
+          <span>保留最近 {activities.length} 条活动</span>
+          {activities.length > 0 && onClear && <button onClick={onClear}>清除本机历史</button>}
+        </div>
+      </section>
+    </>
+  )
+}
+
 export default function App() {
   const { configured, session, profile, loading: authLoading, signOut } = useAuth()
   const {
@@ -668,6 +806,8 @@ export default function App() {
     saveRecord,
     resetRecords,
   } = useRecords()
+  const { settings, saveSettings } = useProfileSettings()
+  const { activities, loading: activityLoading, logActivity, clearLocalActivities } = useActivity()
 
   const [activeNav, setActiveNav] = useState('overview')
   const [period, setPeriod] = useState('week')
@@ -675,8 +815,12 @@ export default function App() {
   const [chartMetric, setChartMetric] = useState('intake')
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isResetModalOpen, setIsResetModalOpen] = useState(false)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isActivityOpen, setIsActivityOpen] = useState(false)
   const [showStandards, setShowStandards] = useState(false)
   const [toast, setToast] = useState('')
+
+  const visibleProfiles = PROFILES.map((person) => ({ ...person, ...settings[person.id] }))
 
   useEffect(() => {
     if (!toast) return undefined
@@ -693,12 +837,12 @@ export default function App() {
 
   const selectedDayRecords = useMemo(() => {
     const key = toDateKey(selectedDate)
-    return PROFILES.map((profile) =>
+    return visibleProfiles.map((profile) =>
       records
         .filter((record) => record.profileId === profile.id && record.date === key)
         .sort((a, b) => b.time.localeCompare(a.time))[0],
     )
-  }, [records, selectedDate])
+  }, [records, selectedDate, settings])
 
   const totalCheckinDays = new Set(records.map((record) => record.date)).size
   const currentWeekRecords = records.filter((record) => {
@@ -728,6 +872,14 @@ export default function App() {
     setPeriod('day')
     const person = PROFILES.find((item) => item.id === record.profileId)
     setToast(`${person.name}的今日打卡已保存`)
+    const { error: activityError } = await logActivity({
+      profileId: record.profileId,
+      type: 'checkin',
+      recordDate: record.date,
+      calories: record.calories,
+      message: `${person.name}完成了今日打卡`,
+    })
+    if (activityError) setToast('打卡已保存，但活动记录暂时无法同步')
   }
 
   const inspectRecord = (record) => {
@@ -744,11 +896,45 @@ export default function App() {
       setIsResetModalOpen(false)
       return
     }
+    const person = PROFILES.find((item) => item.id === profileId)
+    const { error: activityError } = await logActivity({
+      profileId,
+      type: 'reset',
+      calories: myRecordCount,
+      message: configured
+        ? `${person?.name || '成员'}初始化了自己的打卡数据`
+        : '初始化了本地打卡数据',
+    })
     setSelectedDate(new Date())
     setPeriod('day')
     setIsResetModalOpen(false)
-    setToast(configured ? '你的打卡数据已清空' : '数据已初始化，可以开始正式打卡')
+    setToast(activityError ? '数据已清空，但操作历史暂时无法同步' : configured ? '你的打卡数据已清空' : '数据已初始化，可以开始正式打卡')
   }
+
+  const handleSaveSettings = async (profileId, values) => {
+    const { error } = await saveSettings(profileId, values)
+    if (error) return { error }
+    const person = PROFILES.find((item) => item.id === profileId)
+    const { error: activityError } = await logActivity({
+      profileId,
+      type: 'goal_update',
+      message: `${person?.name || '成员'}更新了个人健康目标`,
+    })
+    if (activityError) setToast('目标已保存，但活动记录暂时无法同步')
+    return { error: null }
+  }
+
+  const clearLocalActivity = () => {
+    if (configured) {
+      setToast('云端历史由双方共享，暂不提供单端清除')
+      return
+    }
+    clearLocalActivities()
+  }
+
+  const settingsProfiles = configured && profile
+    ? visibleProfiles.filter((person) => person.id === profile.id)
+    : visibleProfiles
 
   const todayLabel = new Intl.DateTimeFormat('zh-CN', {
     month: 'long', day: 'numeric', weekday: 'long',
@@ -796,13 +982,13 @@ export default function App() {
             <Footprints size={46} />
           </div>
           <span className="nav-caption">本周共同目标</span>
-          <strong>一起完成 4 次运动</strong>
-          <div className="pair-progress"><span style={{ width: `${Math.min(100, (pairedDays / 4) * 100)}%` }} /></div>
-          <p><b>{pairedDays}</b> / 4 次 · 继续并肩向前</p>
+              <strong>一起完成 {Math.max(...visibleProfiles.map((person) => person.weeklyGoal || 4))} 次运动</strong>
+          <div className="pair-progress"><span style={{ width: `${Math.min(100, (pairedDays / Math.max(...visibleProfiles.map((person) => person.weeklyGoal || 4))) * 100)}%` }} /></div>
+          <p><b>{pairedDays}</b> / {Math.max(...visibleProfiles.map((person) => person.weeklyGoal || 4))} 次 · 继续并肩向前</p>
         </div>
 
         <div className="sidebar-bottom">
-          <button><Settings size={18} /><span>个人与目标设置</span></button>
+          <button onClick={() => setIsSettingsOpen(true)}><Settings size={18} /><span>个人与目标设置</span></button>
           <button className="data-reset-button" onClick={() => setIsResetModalOpen(true)}>
             <Trash2 size={18} /><span>初始化 / 清空数据</span>
           </button>
@@ -811,7 +997,7 @@ export default function App() {
           )}
           <div className="sidebar-profile">
             <div className="avatar-stack">
-              {PROFILES.map((profile) => <Avatar key={profile.id} profile={profile} size="small" online />)}
+              {visibleProfiles.map((profile) => <Avatar key={profile.id} profile={profile} size="small" online />)}
             </div>
             <div><strong>林诺娅 & 钟滨</strong><span>相伴第 128 天</span></div>
             <ChevronRight size={16} />
@@ -831,9 +1017,12 @@ export default function App() {
           </div>
           <div className="topbar-actions">
             <button className="icon-button reset-shortcut" onClick={() => setIsResetModalOpen(true)} aria-label="初始化并清空数据" title="初始化并清空数据"><Trash2 size={18} /></button>
-            <button className="icon-button notification" aria-label="通知"><Bell size={19} /><span /></button>
+            <button className="icon-button settings-shortcut" onClick={() => setIsSettingsOpen(true)} aria-label="个人与目标设置" title="个人与目标设置"><Settings size={18} /></button>
+            <button className="icon-button notification" aria-label="活动与历史记录" aria-expanded={isActivityOpen} onClick={() => setIsActivityOpen((value) => !value)}>
+              <Bell size={19} />{activities.length > 0 && <span />}
+            </button>
             <div className="avatar-stack">
-              {PROFILES.map((profile) => <Avatar key={profile.id} profile={profile} size="small" />)}
+              {visibleProfiles.map((profile) => <Avatar key={profile.id} profile={profile} size="small" />)}
             </div>
             <button className="primary-button top-checkin" onClick={() => setIsModalOpen(true)}>
               <Plus size={17} /> 今日打卡
@@ -892,7 +1081,7 @@ export default function App() {
           </section>
 
           <section className="comparison-grid" id="summary">
-            {PROFILES.map((profile) => (
+            {visibleProfiles.map((profile) => (
               <SummaryCard
                 key={profile.id}
                 profile={profile}
@@ -934,7 +1123,7 @@ export default function App() {
                 <span className="live-badge"><span /> 实时</span>
               </div>
               <div className="balance-list">
-                {PROFILES.map((profile, index) => {
+                {visibleProfiles.map((profile, index) => {
                   const record = selectedDayRecords[index]
                   const actual = record?.calories || 0
                   const status = record
@@ -971,7 +1160,7 @@ export default function App() {
               <button className="outline-button" onClick={() => setIsModalOpen(true)}><Plus size={16} /> 记录饮食</button>
             </div>
             <div className="meal-comparison">
-              {PROFILES.map((profile, index) => <MealColumn key={profile.id} profile={profile} record={selectedDayRecords[index]} />)}
+              {visibleProfiles.map((profile, index) => <MealColumn key={profile.id} profile={profile} record={selectedDayRecords[index]} />)}
             </div>
           </section>
 
@@ -1011,6 +1200,7 @@ export default function App() {
         onSubmit={handleSaveRecord}
         defaultDate={selectedDate}
         profileLock={configured && profile ? profile.id : null}
+        profileSettings={profile ? settings[profile.id] : settings[profileLock || 'lin']}
       />
 
       <ResetDataModal
@@ -1019,6 +1209,25 @@ export default function App() {
         onConfirm={resetAllData}
         recordCount={myRecordCount}
         shared={isConnected}
+      />
+
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        profiles={settingsProfiles}
+        settings={settings}
+        onSave={handleSaveSettings}
+        currentProfileId={configured ? profile?.id : null}
+        onSignOut={configured ? signOut : null}
+      />
+
+      <ActivityPopover
+        isOpen={isActivityOpen}
+        onClose={() => setIsActivityOpen(false)}
+        activities={activities}
+        loading={activityLoading}
+        profiles={visibleProfiles}
+        onClear={!isConnected ? clearLocalActivity : null}
       />
 
       {toast && <div className="toast"><span><Check size={16} /></span>{toast}</div>}

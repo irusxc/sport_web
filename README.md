@@ -118,4 +118,15 @@ src/App.jsx              # 主界面（接入新数据层与登录门）
 - **登录后一直显示「正在连接」**：确认 `.env` 里的 `VITE_SUPABASE_URL` 没有拼错，且已在 Supabase 里运行过 `schema.sql`。
 - **认领档案提示「可能已被认领」**：说明该档案已被另一个账号绑定。让两个账号分别认领不同的档案，或联系管理员在 `profiles` 表里把 `user_id` 清空后重试。
 - **邮箱链接收不到邮件**：Supabase 免费项目邮件有配额限制，建议优先用「密码登录」；若必须用邮箱链接，需在 Supabase 配置自定义 SMTP。
-- **想改目标热量/体重等**：目前仍写在 `src/data.js` 的 `PROFILES` 里，改完重新部署即可；后续可把设置迁移到数据库。
+- **想改目标热量/体重等**：登录后通过侧栏「个人与目标设置」修改；云端模式会同步保存到 Supabase。
+
+---
+
+## 七、已部署项目的后续更新（GitHub + Supabase + Netlify）
+
+1. 在 Supabase Dashboard → SQL Editor，运行当前版本 `supabase/schema.sql`。脚本会为现有 `profiles` 增加目标字段，并创建 `activity_log` 历史记录表及 RLS/Realtime 配置；使用幂等建表和列升级语句，可用于升级已有项目，不会删除现有打卡记录。
+2. 将本次代码提交并推送到 GitHub 当前部署分支。Netlify 连接仓库后会自动安装依赖、执行 `npm run build` 并发布 `dist`。
+3. Netlify → Site configuration → Environment variables 检查 `VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY` 存在。若环境变量有变化，需重新触发一次部署。
+4. 等 Netlify Deploys 显示 Published 后，用两个账号分别登录，验证目标设置保存、彼此实时可见；各做一次打卡，再点右上角铃铛检查活动历史。
+
+本次功能说明：个人目标写入 Supabase `profiles`；铃铛读取共享 `activity_log` 中的打卡、目标更新及初始化事件；云端“初始化”只清空**当前登录者自己的记录**，符合现有 RLS 权限，不会清空伴侣的记录。本地模式下仍使用浏览器本地存储。

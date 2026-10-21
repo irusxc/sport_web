@@ -1,6 +1,6 @@
-// 生成 PWA 所需的 PNG 图标（无需任何 npm 依赖，仅用 Node 内置模块）
+// 生成 PWA 所需的 PNG 图标（零 npm 依赖，仅用 Node 内置模块）
 // 用法：在项目根目录运行  node scripts/generate-icons.mjs
-// 会生成 public/icon-192.png、icon-512.png、icon-maskable-512.png
+// 设计：柔和米白底 + 两枚交叠的火焰/水滴（珊瑚橙 + 靛紫），象征「双燃」的两个人
 import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
@@ -51,16 +51,38 @@ function encodePng(width, height, rgba) {
   return Buffer.concat([signature, chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', Buffer.alloc(0))])
 }
 
-// ---------- 绘制：渐变背景 + 白色火焰 ----------
-const TOP = [255, 114, 94] // #ff725e
-const BOTTOM = [98, 86, 232] // #6256e8
+// ---------- 图形定义 ----------
+const CREAM = [247, 246, 242] // #f7f6f2 米白底
+const CORAL = [255, 114, 94] // #ff725e 珊瑚橙
+const INDIGO = [98, 86, 232] // #6256e8 靛紫
 
-// 火焰多边形（归一化坐标，y 向下）
-const FLAME = [
-  [0.5, 0.14], [0.58, 0.24], [0.66, 0.38], [0.7, 0.52], [0.66, 0.66],
-  [0.56, 0.76], [0.5, 0.86], [0.44, 0.76], [0.34, 0.66], [0.3, 0.52],
-  [0.34, 0.38], [0.42, 0.24],
+// 单枚火焰轮廓：6 段三次贝塞尔，单位坐标（x∈[-1,1]，y∈[-1,1]，y 向下，底部为尖）
+const FLAME_SEGS = [
+  [[0, -1], [0.36, -1], [0.64, -0.704], [0.64, -0.333]],
+  [[0.64, -0.333], [0.64, 0.037], [0.4, 0.333], [0.2, 0.519]],
+  [[0.2, 0.519], [0.12, 0.611], [0.06, 0.741], [0, 1]],
+  [[0, 1], [-0.06, 0.741], [-0.12, 0.611], [-0.2, 0.519]],
+  [[-0.2, 0.519], [-0.4, 0.333], [-0.64, 0.037], [-0.64, -0.333]],
+  [[-0.64, -0.333], [-0.64, -0.704], [-0.36, -1], [0, -1]],
 ]
+
+function cubic(p0, c1, c2, p3, t) {
+  const u = 1 - t
+  return [
+    u * u * u * p0[0] + 3 * u * u * t * c1[0] + 3 * u * t * t * c2[0] + t * t * t * p3[0],
+    u * u * u * p0[1] + 3 * u * u * t * c1[1] + 3 * u * t * t * c2[1] + t * t * t * p3[1],
+  ]
+}
+
+function buildFlamePolygon(steps = 12) {
+  const points = []
+  for (const seg of FLAME_SEGS) {
+    for (let i = 0; i < steps; i++) points.push(cubic(seg[0], seg[1], seg[2], seg[3], i / steps))
+  }
+  return points
+}
+
+const FLAME_POLY = buildFlamePolygon()
 
 function pointInPolygon(px, py, polygon) {
   let inside = false
@@ -74,26 +96,49 @@ function pointInPolygon(px, py, polygon) {
   return inside
 }
 
-const lerp = (a, b, t) => Math.round(a + (b - a) * t)
+// 火焰实例：中心 (fx,fy)、缩放 scale
+const SCALE = 0.24
+const LEFT = { fx: 0.4, fy: 0.5 }
+const RIGHT = { fx: 0.6, fy: 0.5 }
 
-function makeIcon(size, flameScale) {
+function flameAt(nx, ny) {
+  // 靛紫火焰画在上层（与 icon.svg 的绘制顺序一致）
+  const inRight = pointInPolygon((nx - RIGHT.fx) / SCALE, (ny - RIGHT.fy) / SCALE, FLAME_POLY)
+  if (inRight) return 2
+  const inLeft = pointInPolygon((nx - LEFT.fx) / SCALE, (ny - LEFT.fy) / SCALE, FLAME_POLY)
+  if (inLeft) return 1
+  return 0
+}
+
+// ---------- 渲染（3x3 超采样抗锯齿） ----------
+function renderIcon(size) {
   const rgba = Buffer.alloc(size * size * 4)
-  const center = 0.5
+  const SS = 3
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const i = (y * size + x) * 4
-      const t = (x + y) / (2 * (size - 1))
-      rgba[i] = lerp(TOP[0], BOTTOM[0], t)
-      rgba[i + 1] = lerp(TOP[1], BOTTOM[1], t)
-      rgba[i + 2] = lerp(TOP[2], BOTTOM[2], t)
-      rgba[i + 3] = 255
-      const nx = center + ((x + 0.5) / size - center) / flameScale
-      const ny = center + ((y + 0.5) / size - center) / flameScale
-      if (pointInPolygon(nx, ny, FLAME)) {
-        rgba[i] = 255
-        rgba[i + 1] = 255
-        rgba[i + 2] = 255
+      let r = 0
+      let g = 0
+      let b = 0
+      for (let sy = 0; sy < SS; sy++) {
+        for (let sx = 0; sx < SS; sx++) {
+          const nx = (x + (sx + 0.5) / SS) / size
+          const ny = (y + (sy + 0.5) / SS) / size
+          const which = flameAt(nx, ny)
+          if (which === 1) {
+            r += CORAL[0]; g += CORAL[1]; b += CORAL[2]
+          } else if (which === 2) {
+            r += INDIGO[0]; g += INDIGO[1]; b += INDIGO[2]
+          } else {
+            r += CREAM[0]; g += CREAM[1]; b += CREAM[2]
+          }
+        }
       }
+      const n = SS * SS
+      const i = (y * size + x) * 4
+      rgba[i] = Math.round(r / n)
+      rgba[i + 1] = Math.round(g / n)
+      rgba[i + 2] = Math.round(b / n)
+      rgba[i + 3] = 255
     }
   }
   return encodePng(size, size, rgba)
@@ -101,11 +146,11 @@ function makeIcon(size, flameScale) {
 
 const outDir = path.join(process.cwd(), 'public')
 fs.mkdirSync(outDir, { recursive: true })
-fs.writeFileSync(path.join(outDir, 'icon-192.png'), makeIcon(192, 1))
-fs.writeFileSync(path.join(outDir, 'icon-512.png'), makeIcon(512, 1))
-fs.writeFileSync(path.join(outDir, 'icon-maskable-512.png'), makeIcon(512, 1.25))
+fs.writeFileSync(path.join(outDir, 'icon-192.png'), renderIcon(192))
+fs.writeFileSync(path.join(outDir, 'icon-512.png'), renderIcon(512))
+fs.writeFileSync(path.join(outDir, 'icon-maskable-512.png'), renderIcon(512))
 
-console.log('✅ 已生成图标：')
+console.log('✅ 已生成图标（米白底 + 双色火焰）：')
 console.log('   public/icon-192.png')
 console.log('   public/icon-512.png')
 console.log('   public/icon-maskable-512.png')

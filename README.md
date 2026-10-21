@@ -130,3 +130,45 @@ src/App.jsx              # 主界面（接入新数据层与登录门）
 4. 等 Netlify Deploys 显示 Published 后，用两个账号分别登录，验证目标设置保存、彼此实时可见；各做一次打卡，再点右上角铃铛检查活动历史。
 
 本次功能说明：个人目标写入 Supabase `profiles`；铃铛读取共享 `activity_log` 中的打卡、目标更新及初始化事件；云端“初始化”只清空**当前登录者自己的记录**，符合现有 RLS 权限，不会清空伴侣的记录。本地模式下仍使用浏览器本地存储。
+
+---
+
+## 八、做成安卓 App（PWA，免商店安装）
+
+网站已支持 PWA（渐进式 Web 应用）。用手机 Chrome 打开网站 → 添加到主屏幕，即可像原生 App 一样全屏运行、有独立图标，且随网站自动更新、无需上架商店。
+
+### 首次启用步骤
+
+1. **生成图标**（只需一次，用你电脑上已装的 Node，无需安装任何东西）：
+
+   ```bash
+   cd G:\deepseekai\sport_web
+   node scripts/generate-icons.mjs
+   ```
+
+   会在 `public/` 下生成 `icon-192.png`、`icon-512.png`、`icon-maskable-512.png`。
+
+2. **提交并推送**（Netlify 会自动重新构建部署）：
+
+   ```bash
+   git add .
+   git commit -m "添加 PWA：可安装到手机主屏幕"
+   git push
+   ```
+
+3. 等 Netlify Deploys 显示 Published。
+
+### 在安卓手机上安装
+
+1. 用 **Chrome 浏览器**打开你的网站（Netlify 地址）。
+2. 点右上角 **⋮ 菜单 → 安装应用 / 添加到主屏幕**。
+3. 确认后，手机桌面会出现「双燃」图标；点开即为**全屏**运行，体验和原生 App 一致。
+
+> 提示：数据同步、登录、打卡等所有功能与网页版完全一致（同一个 Supabase 后端）。若「安装应用」没出现，多刷新一两次或等 Chrome 完成对 PWA 的检测。
+
+### 补充说明
+
+- `public/manifest.webmanifest`：App 名称、图标、全屏显示等配置。
+- `public/sw.js`：Service Worker，缓存静态资源，弱网/离线时也能打开界面（数据同步需联网）。
+- `scripts/generate-icons.mjs`：零依赖的图标生成脚本，可重复运行。
+- 若日后想要**真正的 `.apk` 安装包或上架应用商店**，可用 Capacitor 把本项目打包成原生安卓应用（需要 Android Studio 与签名），需要时再单独处理。

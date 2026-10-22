@@ -12,9 +12,9 @@ export const addDays = (date, amount) => {
 export const PROFILES = [
   {
     id: 'lin',
-    name: '林诺娅',
-    nickname: '诺娅',
-    initials: '娅',
+    name: '小林',
+    nickname: '小林',
+    initials: '林',
     color: '#ff725e',
     softColor: '#fff0eb',
     targetCalories: 1450,
@@ -25,9 +25,9 @@ export const PROFILES = [
   },
   {
     id: 'zhou',
-    name: '钟滨',
-    nickname: '阿滨',
-    initials: '滨',
+    name: '小钟',
+    nickname: '小钟',
+    initials: '钟',
     color: '#6256e8',
     softColor: '#eeecff',
     targetCalories: 1850,

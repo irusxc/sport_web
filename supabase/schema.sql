@@ -46,16 +46,16 @@ create index if not exists records_date_idx on public.records (date);
 
 -- 3) 初始两位成员（未绑定账号，登录后各自认领）
 insert into public.profiles (id, name) values
-  ('lin', '林诺娅'),
-  ('zhou', '钟滨')
+  ('lin', '小林'),
+  ('zhou', '小钟')
 on conflict (id) do nothing;
 
 -- 保留旧成员已有设置，仅修正默认配置的姓名和标准目标值。
 update public.profiles set
-  name = case id when 'lin' then '林诺娅' when 'zhou' then '钟滨' else name end
+  name = case id when 'lin' then '小林' when 'zhou' then '小钟' else name end
 where id in ('lin', 'zhou');
 
--- 新列首次添加时会套用公共默认值；仅将“尚未被用户调整”的周屿演示默认值改为钟滨默认值。
+-- 新列首次添加时会套用公共默认值；仅将“尚未被用户调整”的周屿演示默认值改为小钟默认值。
 update public.profiles set
   target_calories = 1850,
   target_weight = 70,

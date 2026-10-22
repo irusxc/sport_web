@@ -85,7 +85,7 @@ export function useProfileSettings() {
       return { error: null }
     }
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('profiles')
       .update({
         target_calories: values.targetCalories,

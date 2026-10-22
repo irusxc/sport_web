@@ -77,6 +77,14 @@ const PERIODS = [
 
 const MEAL_TYPES = ['早餐', '午餐', '晚餐', '加餐']
 
+// 热量状态判定阈值（kcal）：高于建议 +150 视为「超出建议」，低于建议 300 以上视为「摄入偏低」
+const CALORIE_OVER_THRESHOLD = 150
+const CALORIE_UNDER_THRESHOLD = -300
+
+// 静态展示数据：陪伴天数与连胜徽章展示上限（暂无真实数据源，后续可接入）
+const DAYS_TOGETHER = 128
+const STREAK_DISPLAY_CAP = 12
+
 const parseDate = (dateKey) => new Date(`${dateKey}T12:00:00`)
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
 const sum = (items, getValue) => items.reduce((total, item) => total + getValue(item), 0)
@@ -132,8 +140,8 @@ function shiftDate(date, period, direction) {
 
 function getCalorieStatus(actual, target) {
   const delta = actual - target
-  if (delta > 150) return { label: '超出建议', tone: 'danger', delta }
-  if (delta < -300) return { label: '摄入偏低', tone: 'warning', delta }
+  if (delta > CALORIE_OVER_THRESHOLD) return { label: '超出建议', tone: 'danger', delta }
+  if (delta < CALORIE_UNDER_THRESHOLD) return { label: '摄入偏低', tone: 'warning', delta }
   return { label: '健康范围', tone: 'success', delta }
 }
 
@@ -274,12 +282,12 @@ function CustomTooltip({ active, payload, label }) {
   )
 }
 
-function TrendChart({ records, period, metric }) {
+function TrendChart({ records, period, metric, profiles }) {
   const chartData = useMemo(() => {
     if (period === 'day') {
       return MEAL_TYPES.map((type) => {
         const point = { label: type }
-        PROFILES.forEach((profile) => {
+        profiles.forEach((profile) => {
           const profileMeals = records
             .filter((record) => record.profileId === profile.id)
             .flatMap((record) => record.meals || [])
@@ -294,7 +302,7 @@ function TrendChart({ records, period, metric }) {
       const point = {
         label: `${parseDate(date).getMonth() + 1}/${parseDate(date).getDate()}`,
       }
-      PROFILES.forEach((profile) => {
+      profiles.forEach((profile) => {
         const matching = records.filter((record) => record.date === date && record.profileId === profile.id)
         point[profile.id] = sum(matching, (record) =>
           metric === 'net' ? Math.max(0, record.calories - record.burned) : record.calories,
@@ -302,19 +310,25 @@ function TrendChart({ records, period, metric }) {
       })
       return point
     })
-  }, [records, period, metric])
+  }, [records, period, metric, profiles])
 
-  const data = chartData.length ? chartData : [{ label: '暂无', lin: 0, zhou: 0 }]
+  const emptyPoint = Object.fromEntries(profiles.map((profile) => [profile.id, 0]))
+  const data = chartData.length ? chartData : [{ label: '暂无', ...emptyPoint }]
+  const targetReference = profiles.length
+    ? profiles.reduce((total, profile) => total + (profile.targetCalories || 0), 0) / profiles.length
+    : 0
 
   return (
     <div className="chart-wrap">
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data} margin={{ top: 10, right: 12, left: -18, bottom: 0 }}>
           <defs>
-            <linearGradient id="linGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#ff725e" stopOpacity={0.18} />
-              <stop offset="100%" stopColor="#ff725e" stopOpacity={0} />
-            </linearGradient>
+            {profiles.map((profile) => (
+              <linearGradient key={profile.id} id={`gradient-${profile.id}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={profile.color} stopOpacity={0.18} />
+                <stop offset="100%" stopColor={profile.color} stopOpacity={0} />
+              </linearGradient>
+            ))}
           </defs>
           <CartesianGrid stroke="#ebece7" strokeDasharray="4 5" vertical={false} />
           <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#8c9088', fontSize: 12 }} dy={10} />
@@ -328,28 +342,30 @@ function TrendChart({ records, period, metric }) {
             iconSize={8}
             formatter={(value) => <span className="legend-label">{value}</span>}
           />
-          {period !== 'day' && metric === 'intake' && (
-            <ReferenceLine y={1650} stroke="#bcc0b9" strokeDasharray="6 5" />
+          {period !== 'day' && metric === 'intake' && profiles.length > 1 && (
+            <ReferenceLine y={targetReference} stroke="#bcc0b9" strokeDasharray="6 5" />
           )}
-          <Area type="monotone" dataKey="lin" fill="url(#linGradient)" stroke="none" legendType="none" />
-          <Line
-            type="monotone"
-            dataKey="lin"
-            name="林诺娅"
-            stroke="#ff725e"
-            strokeWidth={3}
-            dot={{ r: 4, fill: '#fff', strokeWidth: 2 }}
-            activeDot={{ r: 6 }}
-          />
-          <Line
-            type="monotone"
-            dataKey="zhou"
-            name="钟滨"
-            stroke="#6256e8"
-            strokeWidth={3}
-            dot={{ r: 4, fill: '#fff', strokeWidth: 2 }}
-            activeDot={{ r: 6 }}
-          />
+          {profiles[0] && (
+            <Area
+              type="monotone"
+              dataKey={profiles[0].id}
+              fill={`url(#gradient-${profiles[0].id})`}
+              stroke="none"
+              legendType="none"
+            />
+          )}
+          {profiles.map((profile) => (
+            <Line
+              key={profile.id}
+              type="monotone"
+              dataKey={profile.id}
+              name={profile.name}
+              stroke={profile.color}
+              strokeWidth={3}
+              dot={{ r: 4, fill: '#fff', strokeWidth: 2 }}
+              activeDot={{ r: 6 }}
+            />
+          ))}
         </ComposedChart>
       </ResponsiveContainer>
     </div>
@@ -650,7 +666,7 @@ function ResetDataModal({ isOpen, onClose, onConfirm, recordCount, shared = fals
       <section className="reset-modal" role="alertdialog" aria-modal="true" aria-label="初始化数据确认">
         <span className="reset-icon"><Trash2 size={23} /></span>
         <h2>{shared ? '清空我的打卡数据？' : '初始化并清空数据？'}</h2>
-        <p>{shared ? '这会永久删除你当前保存的' : '这会永久删除林诺娅和钟滨当前保存的'} <strong>{recordCount} 条</strong>打卡记录，清空后将从零开始正式使用。</p>
+        <p>{shared ? '这会永久删除你当前保存的' : `这会永久删除${PROFILES.map((person) => person.name).join('和')}当前保存的`} <strong>{recordCount} 条</strong>打卡记录，清空后将从零开始正式使用。</p>
         <div className="reset-warning"><CircleHelp size={16} /> {shared ? '云端数据删除后无法恢复，请确认不再需要这些记录。' : '本机浏览器数据无法恢复，请确认不再需要示例或历史记录。'}</div>
         <div className="reset-actions">
           <button type="button" className="outline-button" onClick={onClose}>取消</button>
@@ -820,7 +836,10 @@ export default function App() {
   const [showStandards, setShowStandards] = useState(false)
   const [toast, setToast] = useState('')
 
-  const visibleProfiles = PROFILES.map((person) => ({ ...person, ...settings[person.id] }))
+  const visibleProfiles = useMemo(
+    () => PROFILES.map((person) => ({ ...person, ...settings[person.id] })),
+    [settings],
+  )
 
   useEffect(() => {
     if (!toast) return undefined
@@ -845,15 +864,18 @@ export default function App() {
   }, [records, selectedDate, settings])
 
   const totalCheckinDays = new Set(records.map((record) => record.date)).size
-  const currentWeekRecords = records.filter((record) => {
+  const pairedDays = useMemo(() => {
     const { start, end } = getPeriodBounds(new Date(), 'week')
-    return record.date >= toDateKey(start) && record.date <= toDateKey(end)
-  })
-  const pairedDays = new Set(
-    currentWeekRecords
-      .map((record) => record.date)
-      .filter((date) => new Set(currentWeekRecords.filter((item) => item.date === date).map((item) => item.profileId)).size === 2),
-  ).size
+    const startKey = toDateKey(start)
+    const endKey = toDateKey(end)
+    const profilesByDate = {}
+    records.forEach((record) => {
+      if (record.date < startKey || record.date > endKey) return
+      const profiles = (profilesByDate[record.date] ||= new Set())
+      profiles.add(record.profileId)
+    })
+    return Object.values(profilesByDate).filter((set) => set.size === PROFILES.length).length
+  }, [records])
 
   const goToSection = (id) => {
     setActiveNav(id)
@@ -999,7 +1021,7 @@ export default function App() {
             <div className="avatar-stack">
               {visibleProfiles.map((profile) => <Avatar key={profile.id} profile={profile} size="small" online />)}
             </div>
-            <div><strong>林诺娅 & 钟滨</strong><span>相伴第 128 天</span></div>
+            <div><strong>{visibleProfiles.map((person) => person.name).join(' & ')}</strong><span>相伴第 {DAYS_TOGETHER} 天</span></div>
             <ChevronRight size={16} />
           </div>
         </div>
@@ -1049,7 +1071,7 @@ export default function App() {
             </div>
             <div className="streak-card">
               <span className="streak-icon"><Award size={24} /></span>
-              <div><small>连续共同打卡</small><strong>{Math.min(totalCheckinDays, 12)}<span>天</span></strong></div>
+              <div><small>连续共同打卡</small><strong>{Math.min(totalCheckinDays, STREAK_DISPLAY_CAP)}<span>天</span></strong></div>
               <div className="streak-days">
                 {['一', '二', '三', '四', '五', '六', '日'].map((day, index) => (
                   <span key={day} className={index < Math.min(pairedDays, 7) ? 'done' : index === pairedDays ? 'today' : ''}>
@@ -1107,7 +1129,7 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <TrendChart records={filteredRecords} period={period} metric={chartMetric} />
+              <TrendChart records={filteredRecords} period={period} metric={chartMetric} profiles={visibleProfiles} />
               <div className="chart-note">
                 <span><Target size={16} /> 灰色虚线为两人目标热量的中间参考值</span>
                 <span>净摄入 = 食物热量 − 记录的运动消耗</span>
@@ -1176,10 +1198,10 @@ export default function App() {
             </button>
             {showStandards && (
               <div className="standards-details">
-                <div><b>健康范围</b><span>个人建议值 −300 至 +150 kcal</span></div>
-                <div><b>摄入偏低</b><span>低于个人建议值 300 kcal 以上</span></div>
-                <div><b>超出建议</b><span>高于个人建议值 150 kcal 以上</span></div>
-                <p>当前示例目标为林诺娅 1,450 kcal / 天、钟滨 1,850 kcal / 天；这是一套日常记录提示规则，不是医学诊断或处方。</p>
+                <div><b>健康范围</b><span>个人建议值 {CALORIE_UNDER_THRESHOLD} 至 +{CALORIE_OVER_THRESHOLD} kcal</span></div>
+                <div><b>摄入偏低</b><span>低于个人建议值 {Math.abs(CALORIE_UNDER_THRESHOLD)} kcal 以上</span></div>
+                <div><b>超出建议</b><span>高于个人建议值 {CALORIE_OVER_THRESHOLD} kcal 以上</span></div>
+                <p>当前目标为 {visibleProfiles.map((person) => `${person.name} ${formatNumber(person.targetCalories)} kcal / 天`).join('、')}；这是一套日常记录提示规则，不是医学诊断或处方。</p>
               </div>
             )}
           </section>

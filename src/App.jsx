@@ -149,6 +149,16 @@ function formatNumber(value) {
   return new Intl.NumberFormat('zh-CN').format(Math.round(value || 0))
 }
 
+function formatExerciseSummary(record) {
+  if (!record) return ''
+  return [
+    record.exercise,
+    record.speed ? `${record.speed} km/h` : null,
+    record.incline ? `坡度 ${record.incline}%` : null,
+    `${record.duration} 分钟`,
+  ].filter(Boolean).join(' · ')
+}
+
 function Avatar({ profile, size = 'medium', online = false }) {
   return (
     <span
@@ -440,6 +450,8 @@ function CheckinModal({ isOpen, onClose, onSubmit, defaultDate, profileLock = nu
   const [weight, setWeight] = useState('56.3')
   const [exerciseId, setExerciseId] = useState('brisk_walk')
   const [duration, setDuration] = useState('40')
+  const [treadmillSpeed, setTreadmillSpeed] = useState('8')
+  const [treadmillIncline, setTreadmillIncline] = useState('2')
   const [water, setWater] = useState('1800')
   const [mood, setMood] = useState('轻盈')
   const [mealItems, setMealItems] = useState(createDefaultMeals)
@@ -458,7 +470,11 @@ function CheckinModal({ isOpen, onClose, onSubmit, defaultDate, profileLock = nu
   if (!isOpen) return null
 
   const selectedExercise = EXERCISE_LIBRARY.find((item) => item.id === exerciseId)
-  const burned = calculateExerciseCalories(exerciseId, weight, duration)
+  const isTreadmill = selectedExercise?.mode === 'treadmill'
+  const burned = calculateExerciseCalories(exerciseId, weight, duration, {
+    speed: treadmillSpeed,
+    incline: treadmillIncline,
+  })
   const getItemCalories = (item) => calculateFoodCalories(item.foodId, item.grams, item.customKcalPer100g)
   const totalCalories = sum(mealItems, getItemCalories)
 
@@ -501,6 +517,8 @@ function CheckinModal({ isOpen, onClose, onSubmit, defaultDate, profileLock = nu
       exerciseId,
       duration: Number(duration),
       burned,
+      speed: isTreadmill ? Number(treadmillSpeed) || 0 : null,
+      incline: isTreadmill ? Number(treadmillIncline) || 0 : null,
       water: Number(water),
       mood,
       meals,
@@ -565,6 +583,18 @@ function CheckinModal({ isOpen, onClose, onSubmit, defaultDate, profileLock = nu
               <span className="form-label">运动时长 <small>分钟</small></span>
               <input type="number" min="0" max="600" value={duration} onChange={(event) => setDuration(event.target.value)} />
             </label>
+            {isTreadmill && (
+              <>
+                <label>
+                  <span className="form-label">跑步机速度 <small>km/h</small></span>
+                  <input type="number" min="1" max="20" step="0.1" value={treadmillSpeed} onChange={(event) => setTreadmillSpeed(event.target.value)} />
+                </label>
+                <label>
+                  <span className="form-label">跑步机坡度 <small>%</small></span>
+                  <input type="number" min="0" max="15" step="0.5" value={treadmillIncline} onChange={(event) => setTreadmillIncline(event.target.value)} />
+                </label>
+              </>
+            )}
             <label>
               <span className="form-label">运动消耗 <small>自动估算</small></span>
               <div className="calculated-field"><Flame size={15} /><strong>{formatNumber(burned)}</strong><span>kcal</span></div>
@@ -577,7 +607,11 @@ function CheckinModal({ isOpen, onClose, onSubmit, defaultDate, profileLock = nu
 
           <div className="exercise-formula">
             <Activity size={16} />
-            <span><b>{selectedExercise?.name}</b>：MET {selectedExercise?.met} × 3.5 × {weight || 0} kg ÷ 200 × {duration || 0} 分钟</span>
+            <span>
+              {isTreadmill
+                ? <>跑步机：{treadmillSpeed || 0} km/h · 坡度 {treadmillIncline || 0}% · {duration || 0} 分钟（ACSM 公式估算）</>
+                : <><b>{selectedExercise?.name}</b>：MET {selectedExercise?.met} × 3.5 × {weight || 0} kg ÷ 200 × {duration || 0} 分钟</>}
+            </span>
             <strong>{formatNumber(burned)} kcal</strong>
           </div>
 
@@ -1154,7 +1188,7 @@ export default function App() {
                   const remaining = profile.targetCalories - actual
                   return (
                     <div className="balance-item" key={profile.id} style={{ '--person-color': profile.color, '--person-soft': profile.softColor }}>
-                      <div className="balance-person"><Avatar profile={profile} size="small" /><div><strong>{profile.name}</strong><span>{record ? `${record.exercise} · ${record.duration} 分钟` : '今日尚未打卡'}</span></div></div>
+                      <div className="balance-person"><Avatar profile={profile} size="small" /><div><strong>{profile.name}</strong><span>{record ? formatExerciseSummary(record) : '今日尚未打卡'}</span></div></div>
                       <div className="balance-bar-label"><span>摄入 {formatNumber(actual)}</span><span>建议 {formatNumber(profile.targetCalories)}</span></div>
                       <div className="balance-bar"><span style={{ width: `${clamp((actual / profile.targetCalories) * 100, 0, 100)}%` }} /></div>
                       <div className="balance-result">

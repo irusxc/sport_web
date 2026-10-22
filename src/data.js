@@ -83,6 +83,7 @@ export const EXERCISE_LIBRARY = [
   { id: 'brisk_walk', name: '快走', met: 5 },
   { id: 'jog', name: '慢跑', met: 7 },
   { id: 'run', name: '跑步', met: 9.8 },
+  { id: 'treadmill', name: '跑步机', mode: 'treadmill' },
   { id: 'cycling', name: '骑行 / 动感单车', met: 7.5 },
   { id: 'swimming', name: '游泳', met: 8 },
   { id: 'jump_rope', name: '跳绳', met: 11.8 },
@@ -102,10 +103,31 @@ export const calculateFoodCalories = (foodId, grams, customKcalPer100g = 0) => {
   return Math.round((kcalPer100g * (Number(grams) || 0)) / 100)
 }
 
-export const calculateExerciseCalories = (exerciseId, weight, duration) => {
+export const calculateExerciseCalories = (exerciseId, weight, duration, params = {}) => {
   const exercise = EXERCISE_LIBRARY.find((item) => item.id === exerciseId)
   if (!exercise) return 0
+  if (exercise.mode === 'treadmill') {
+    return calculateTreadmillCalories(weight, params.speed, params.incline, duration)
+  }
   return Math.round((exercise.met * 3.5 * (Number(weight) || 0) * (Number(duration) || 0)) / 200)
+}
+
+// 跑步机卡路里估算：采用 ACSM 步行/跑步代谢当量公式
+// 速度(km/h)、坡度(%)、时长(分钟) → VO2(ml/kg/min) × 体重(kg) ÷ 200 × 分钟
+export function calculateTreadmillCalories(weight, speedKmh, inclinePercent, duration) {
+  const weightKg = Number(weight) || 0
+  const speed = Number(speedKmh) || 0
+  const grade = Math.max(0, Number(inclinePercent) || 0) / 100
+  const minutes = Number(duration) || 0
+  if (!weightKg || !speed || !minutes) return 0
+
+  const metersPerMinute = speed * (1000 / 60)
+  // 速度 ≤6 km/h 按步行，>6 km/h 按跑步
+  const vo2 = speed <= 6
+    ? 0.1 * metersPerMinute + 1.8 * metersPerMinute * grade + 3.5
+    : 0.2 * metersPerMinute + 0.9 * metersPerMinute * grade + 3.5
+
+  return Math.round((vo2 * weightKg * minutes) / 200)
 }
 
 const meals = {

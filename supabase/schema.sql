@@ -42,6 +42,10 @@ create table if not exists public.records (
   unique (profile_id, date)                                   -- 每人每天一条记录
 );
 
+-- 跑步机参数（速度 km/h、坡度 %），非跑步机记录为 null
+alter table public.records add column if not exists speed numeric;
+alter table public.records add column if not exists incline numeric;
+
 create index if not exists records_date_idx on public.records (date);
 
 -- 3) 初始两位成员（未绑定账号，登录后各自认领）

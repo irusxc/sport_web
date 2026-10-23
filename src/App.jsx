@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   Apple,
@@ -58,6 +58,7 @@ import { useAuth } from './auth'
 import { useRecords } from './records'
 import { useProfileSettings } from './settings'
 import { useActivity } from './activity'
+import ExercisePicker from './ExercisePicker'
 import { ClaimScreen, FullScreenLoader, LoginScreen } from './auth-ui'
 
 const ICONS = {
@@ -444,7 +445,7 @@ const createMealItem = (type, foodId = DEFAULT_FOOD_BY_MEAL[type], grams = 100) 
 
 const createDefaultMeals = () => MEAL_TYPES.map((type) => createMealItem(type))
 
-function CheckinModal({ isOpen, onClose, onSubmit, defaultDate, profileLock = null, profileSettings = null }) {
+function CheckinModal({ isOpen, onClose, onSubmit, defaultDate, profileLock = null, profileSettings = {}, records = [] }) {
   const [profileId, setProfileId] = useState(profileLock || PROFILES[0].id)
   const [date, setDate] = useState(toDateKey(defaultDate))
   const [weight, setWeight] = useState('56.3')
@@ -455,6 +456,10 @@ function CheckinModal({ isOpen, onClose, onSubmit, defaultDate, profileLock = nu
   const [water, setWater] = useState('1800')
   const [mood, setMood] = useState('轻盈')
   const [mealItems, setMealItems] = useState(createDefaultMeals)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const submitting = useRef(false)
+  const startWeight = profileSettings[profileId]?.startWeight
 
   useEffect(() => setDate(toDateKey(defaultDate)), [defaultDate, isOpen])
 
@@ -463,15 +468,19 @@ function CheckinModal({ isOpen, onClose, onSubmit, defaultDate, profileLock = nu
   }, [profileLock])
 
   useEffect(() => {
-    setWeight(String(profileSettings?.startWeight ?? (profileId === 'lin' ? 56.3 : 74.4)))
+    setWeight(String(startWeight ?? (profileId === 'lin' ? 56.3 : 74.4)))
     setWater(profileId === 'lin' ? '1800' : '2400')
-  }, [profileId, profileSettings?.startWeight])
+  }, [profileId, startWeight])
+
+  useEffect(() => { if (isOpen) setSaveError('') }, [isOpen])
 
   if (!isOpen) return null
 
   const selectedExercise = EXERCISE_LIBRARY.find((item) => item.id === exerciseId)
   const isTreadmill = selectedExercise?.mode === 'treadmill'
-  const burned = calculateExerciseCalories(exerciseId, weight, duration, {
+  const isRest = exerciseId === 'rest'
+  const exerciseDuration = isRest ? 0 : Number(duration)
+  const burned = calculateExerciseCalories(exerciseId, weight, exerciseDuration, {
     speed: treadmillSpeed,
     incline: treadmillIncline,
   })
@@ -490,44 +499,59 @@ function CheckinModal({ isOpen, onClose, onSubmit, defaultDate, profileLock = nu
     setMealItems((current) => current.filter((item) => item.id !== id))
   }
 
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault()
-    const meals = mealItems
-      .filter((item) => Number(item.grams) > 0)
-      .map((item) => {
-        const food = FOOD_LIBRARY.find((foodItem) => foodItem.id === item.foodId)
-        return {
-          type: item.type,
-          name: item.foodId === 'custom' ? (item.customName.trim() || '自定义食物') : food?.name || '未命名食物',
-          foodId: item.foodId,
-          grams: Number(item.grams),
-          kcalPer100g: item.foodId === 'custom' ? Number(item.customKcalPer100g) || 0 : food?.kcalPer100g || 0,
-          calories: getItemCalories(item),
-        }
-      })
+    if (submitting.current) return
+    submitting.current = true
+    setSaving(true)
+    setSaveError('')
+    try {
+      const meals = mealItems
+        .filter((item) => Number(item.grams) > 0)
+        .map((item) => {
+          const food = FOOD_LIBRARY.find((foodItem) => foodItem.id === item.foodId)
+          return {
+            type: item.type,
+            name: item.foodId === 'custom' ? (item.customName.trim() || '自定义食物') : food?.name || '未命名食物',
+            foodId: item.foodId,
+            grams: Number(item.grams),
+            kcalPer100g: item.foodId === 'custom' ? Number(item.customKcalPer100g) || 0 : food?.kcalPer100g || 0,
+            calories: getItemCalories(item),
+          }
+        })
 
-    onSubmit({
-      id: `record-${profileId}-${date}-${Date.now()}`,
-      profileId,
-      date,
-      time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }),
-      calories: sum(meals, (meal) => meal.calories),
-      weight: Number(weight),
-      exercise: selectedExercise?.name || '休息日',
-      exerciseId,
-      duration: Number(duration),
-      burned,
-      speed: isTreadmill ? Number(treadmillSpeed) || 0 : null,
-      incline: isTreadmill ? Number(treadmillIncline) || 0 : null,
-      water: Number(water),
-      mood,
-      meals,
-    })
-    onClose()
+      const result = await onSubmit({
+        id: `record-${profileId}-${date}-${Date.now()}`,
+        profileId,
+        date,
+        time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }),
+        calories: sum(meals, (meal) => meal.calories),
+        weight: Number(weight),
+        exercise: selectedExercise?.name || '休息日',
+        exerciseId,
+        duration: exerciseDuration,
+        burned,
+        speed: isTreadmill ? Number(treadmillSpeed) || 0 : null,
+        incline: isTreadmill ? Number(treadmillIncline) || 0 : null,
+        water: Number(water),
+        mood,
+        meals,
+      })
+      if (result?.error) {
+        setSaveError(result.error.message || '保存失败，请稍后重试。已填写的内容会保留。')
+      } else {
+        onClose()
+      }
+    } catch {
+      setSaveError('暂时无法保存，请检查网络后重试。已填写的内容会保留。')
+    } finally {
+      submitting.current = false
+      setSaving(false)
+    }
   }
 
   return (
-    <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <div className="modal-backdrop" onMouseDown={(event) => !saving && event.target === event.currentTarget && onClose()}>
       <section className="checkin-modal" role="dialog" aria-modal="true" aria-label="新增健康打卡">
         <div className="modal-head">
           <div>
@@ -535,157 +559,168 @@ function CheckinModal({ isOpen, onClose, onSubmit, defaultDate, profileLock = nu
             <h2>记录今天的好状态</h2>
             <p>选择食物与运动，热量会随着克数和时长实时计算。</p>
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="关闭"><X size={20} /></button>
+          <button className="icon-button" onClick={onClose} disabled={saving} aria-label="关闭"><X size={20} /></button>
         </div>
 
-        <form onSubmit={submit}>
-          <div className="form-section">
-            <label className="form-label">{profileLock ? '本次打卡记给' : '谁来打卡'}</label>
-            <div className="profile-select">
-              {(profileLock ? PROFILES.filter((person) => person.id === profileLock) : PROFILES).map((profile) => (
-                <button
-                  type="button"
-                  key={profile.id}
-                  className={profileId === profile.id ? 'selected' : ''}
-                  onClick={() => !profileLock && setProfileId(profile.id)}
-                  disabled={Boolean(profileLock)}
-                  style={{ '--person-color': profile.color, '--person-soft': profile.softColor }}
-                >
-                  <Avatar profile={profile} size="small" />
-                  <span>{profile.name}</span>
-                  {profileId === profile.id && <Check size={16} />}
-                </button>
-              ))}
+        <form onSubmit={submit} aria-busy={saving}>
+          <fieldset className="checkin-fields" disabled={saving}>
+            <div className="form-section">
+              <label className="form-label">{profileLock ? '本次打卡记给' : '谁来打卡'}</label>
+              <div className="profile-select">
+                {(profileLock ? PROFILES.filter((person) => person.id === profileLock) : PROFILES).map((profile) => (
+                  <button
+                    type="button"
+                    key={profile.id}
+                    className={profileId === profile.id ? 'selected' : ''}
+                    onClick={() => !profileLock && setProfileId(profile.id)}
+                    disabled={Boolean(profileLock)}
+                    style={{ '--person-color': profile.color, '--person-soft': profile.softColor }}
+                  >
+                    <Avatar profile={profile} size="small" />
+                    <span>{profile.name}</span>
+                    {profileId === profile.id && <Check size={16} />}
+                  </button>
+                ))}
+              </div>
+              {profileLock && (
+                <p style={{ margin: '6px 0 0', fontSize: '13px', color: '#8c9088' }}>
+                  已登录为 {PROFILES.find((person) => person.id === profileLock)?.name}，打卡将保存到你的档案。
+                </p>
+              )}
             </div>
-            {profileLock && (
-              <p style={{ margin: '6px 0 0', fontSize: '13px', color: '#8c9088' }}>
-                已登录为 {PROFILES.find((person) => person.id === profileLock)?.name}，打卡将保存到你的档案。
-              </p>
-            )}
-          </div>
 
-          <div className="form-grid form-section">
-            <label>
-              <span className="form-label">打卡日期</span>
-              <input type="date" required value={date} onChange={(event) => setDate(event.target.value)} />
-            </label>
-            <label>
-              <span className="form-label">当前体重 <small>kg</small></span>
-              <input type="number" step="0.1" min="30" max="250" required value={weight} onChange={(event) => setWeight(event.target.value)} />
-            </label>
-            <label>
-              <span className="form-label">运动项目</span>
-              <select value={exerciseId} onChange={(event) => setExerciseId(event.target.value)}>
-                {EXERCISE_LIBRARY.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select>
-            </label>
-            <label>
-              <span className="form-label">运动时长 <small>分钟</small></span>
-              <input type="number" min="0" max="600" value={duration} onChange={(event) => setDuration(event.target.value)} />
-            </label>
-            {isTreadmill && (
-              <>
-                <label>
-                  <span className="form-label">跑步机速度 <small>km/h</small></span>
-                  <input type="number" min="1" max="20" step="0.1" value={treadmillSpeed} onChange={(event) => setTreadmillSpeed(event.target.value)} />
-                </label>
-                <label>
-                  <span className="form-label">跑步机坡度 <small>%</small></span>
-                  <input type="number" min="0" max="15" step="0.5" value={treadmillIncline} onChange={(event) => setTreadmillIncline(event.target.value)} />
-                </label>
-              </>
-            )}
-            <label>
-              <span className="form-label">运动消耗 <small>自动估算</small></span>
-              <div className="calculated-field"><Flame size={15} /><strong>{formatNumber(burned)}</strong><span>kcal</span></div>
-            </label>
-            <label>
-              <span className="form-label">饮水 <small>ml</small></span>
-              <input type="number" min="0" value={water} onChange={(event) => setWater(event.target.value)} />
-            </label>
-          </div>
-
-          <div className="exercise-formula">
-            <Activity size={16} />
-            <span>
-              {isTreadmill
-                ? <>跑步机：{treadmillSpeed || 0} km/h · 坡度 {treadmillIncline || 0}% · {duration || 0} 分钟（ACSM 公式估算）</>
-                : <><b>{selectedExercise?.name}</b>：MET {selectedExercise?.met} × 3.5 × {weight || 0} kg ÷ 200 × {duration || 0} 分钟</>}
-            </span>
-            <strong>{formatNumber(burned)} kcal</strong>
-          </div>
-
-          <div className="form-section food-form-section">
-            <div className="form-section-title">
-              <div><span className="form-label">今日饮食</span><small>选择食物并填写实际克数</small></div>
-              <strong>{formatNumber(totalCalories)} <small>kcal</small></strong>
+            <div className="form-grid form-section">
+              <label>
+                <span className="form-label">打卡日期</span>
+                <input type="date" required value={date} onChange={(event) => setDate(event.target.value)} />
+              </label>
+              <label>
+                <span className="form-label">当前体重 <small>kg</small></span>
+                <input type="number" step="0.1" min="30" max="250" required value={weight} onChange={(event) => setWeight(event.target.value)} />
+              </label>
+              <label>
+                <span className="form-label">饮水 <small>ml</small></span>
+                <input type="number" min="0" value={water} onChange={(event) => setWater(event.target.value)} />
+              </label>
             </div>
-            <div className="meal-groups">
-              {MEAL_TYPES.map((type) => {
-                const items = mealItems.filter((item) => item.type === type)
-                const mealTotal = sum(items, getItemCalories)
-                return (
-                  <div className="meal-input-group" key={type}>
-                    <div className="meal-input-head">
-                      <div><strong>{type}</strong><span>{formatNumber(mealTotal)} kcal</span></div>
-                      <button type="button" onClick={() => addMealItem(type)}><Plus size={14} /> 添加食物</button>
-                    </div>
-                    {items.length === 0 && <div className="empty-meal">尚未添加食物</div>}
-                    {items.map((item) => {
-                      const food = FOOD_LIBRARY.find((foodItem) => foodItem.id === item.foodId)
-                      const calories = getItemCalories(item)
-                      const customFood = item.foodId === 'custom'
-                      return (
-                        <div className={`food-input-row ${customFood ? 'custom' : ''}`} key={item.id}>
-                          <label>
-                            <span>食物</span>
-                            <select value={item.foodId} onChange={(event) => updateMealItem(item.id, 'foodId', event.target.value)}>
-                              {FOOD_LIBRARY.map((foodItem) => (
-                                <option key={foodItem.id} value={foodItem.id}>{foodItem.name} · {foodItem.kcalPer100g} kcal/100g</option>
-                              ))}
-                            </select>
-                          </label>
-                          {customFood && (
-                            <label className="custom-food-name">
-                              <span>自定义食物名称</span>
-                              <input type="text" placeholder="输入食物名称" value={item.customName} onChange={(event) => updateMealItem(item.id, 'customName', event.target.value)} />
+
+            <div className="form-section exercise-section">
+              <ExercisePicker key={profileId} value={exerciseId} onChange={setExerciseId} records={records} profileId={profileId} />
+              {isRest ? <p className="rest-day-note">休息也是计划的一部分。今天的运动时长和消耗均记为 0，仍可记录饮食和体重。</p> : (
+              <div className="form-grid exercise-details">
+              <div>
+                <label>
+                <span className="form-label">运动时长 <small>分钟</small></span>
+                <input type="number" required min="1" max="600" value={duration} onChange={(event) => setDuration(event.target.value)} />
+                </label>
+                <div className="duration-presets" role="group" aria-label="快捷运动时长">
+                  {[15, 30, 45, 60].map((minutes) => <button type="button" key={minutes} aria-pressed={Number(duration) === minutes}
+                    onClick={() => setDuration(String(minutes))}>{minutes} 分</button>)}
+                </div>
+              </div>
+              {isTreadmill && (
+                <>
+                  <label>
+                    <span className="form-label">跑步机速度 <small>km/h</small></span>
+                    <input type="number" required min="1" max="20" step="0.1" value={treadmillSpeed} onChange={(event) => setTreadmillSpeed(event.target.value)} />
+                  </label>
+                  <label>
+                    <span className="form-label">跑步机坡度 <small>%</small></span>
+                    <input type="number" required min="0" max="15" step="0.5" value={treadmillIncline} onChange={(event) => setTreadmillIncline(event.target.value)} />
+                  </label>
+                </>
+              )}
+              <div>
+                <span className="form-label">运动消耗 <small>自动估算</small></span>
+                <output className="calculated-field" aria-live="polite"><Flame size={15} /><strong>{formatNumber(burned)}</strong><span>kcal</span></output>
+              </div>
+              </div>
+              )}
+            </div>
+
+            {!isRest && <div className="exercise-formula">
+              <Activity size={16} />
+              <span>
+                {isTreadmill
+                  ? <>跑步机 · {treadmillSpeed || 0} km/h · 坡度 {treadmillIncline || 0}% · {duration || 0} 分钟</>
+                  : <><b>{selectedExercise?.name}</b> · {duration || 0} 分钟 · 按当前体重估算消耗</>}
+              </span>
+              <strong>{formatNumber(burned)} kcal</strong>
+            </div>}
+
+            <div className="form-section food-form-section">
+              <div className="form-section-title">
+                <div><span className="form-label">今日饮食</span><small>选择食物并填写实际克数</small></div>
+                <strong>{formatNumber(totalCalories)} <small>kcal</small></strong>
+              </div>
+              <div className="meal-groups">
+                {MEAL_TYPES.map((type) => {
+                  const items = mealItems.filter((item) => item.type === type)
+                  const mealTotal = sum(items, getItemCalories)
+                  return (
+                    <div className="meal-input-group" key={type}>
+                      <div className="meal-input-head">
+                        <div><strong>{type}</strong><span>{formatNumber(mealTotal)} kcal</span></div>
+                        <button type="button" onClick={() => addMealItem(type)}><Plus size={14} /> 添加食物</button>
+                      </div>
+                      {items.length === 0 && <div className="empty-meal">尚未添加食物</div>}
+                      {items.map((item) => {
+                        const food = FOOD_LIBRARY.find((foodItem) => foodItem.id === item.foodId)
+                        const calories = getItemCalories(item)
+                        const customFood = item.foodId === 'custom'
+                        return (
+                          <div className={`food-input-row ${customFood ? 'custom' : ''}`} key={item.id}>
+                            <label>
+                              <span>食物</span>
+                              <select value={item.foodId} onChange={(event) => updateMealItem(item.id, 'foodId', event.target.value)}>
+                                {FOOD_LIBRARY.map((foodItem) => (
+                                  <option key={foodItem.id} value={foodItem.id}>{foodItem.name} · {foodItem.kcalPer100g} kcal/100g</option>
+                                ))}
+                              </select>
                             </label>
-                          )}
-                          <label className="grams-field">
-                            <span>进食量</span>
-                            <div><input type="number" min="0" max="5000" step="1" value={item.grams} onChange={(event) => updateMealItem(item.id, 'grams', event.target.value)} /><i>g</i></div>
-                          </label>
-                          {customFood && (
-                            <label className="custom-kcal-field">
-                              <span>每100克热量</span>
-                              <div><input type="number" min="0" max="1000" value={item.customKcalPer100g} placeholder="热量" onChange={(event) => updateMealItem(item.id, 'customKcalPer100g', event.target.value)} /><i>kcal</i></div>
+                            {customFood && (
+                              <label className="custom-food-name">
+                                <span>自定义食物名称</span>
+                                <input type="text" placeholder="输入食物名称" value={item.customName} onChange={(event) => updateMealItem(item.id, 'customName', event.target.value)} />
+                              </label>
+                            )}
+                            <label className="grams-field">
+                              <span>进食量</span>
+                              <div><input type="number" min="0" max="5000" step="1" value={item.grams} onChange={(event) => updateMealItem(item.id, 'grams', event.target.value)} /><i>g</i></div>
                             </label>
-                          )}
-                          <div className="food-calorie-result">
-                            <span>{customFood ? (Number(item.customKcalPer100g) || 0) : food?.kcalPer100g || 0} kcal/100g</span>
-                            <strong>{formatNumber(calories)} <small>kcal</small></strong>
+                            {customFood && (
+                              <label className="custom-kcal-field">
+                                <span>每100克热量</span>
+                                <div><input type="number" min="0" max="1000" value={item.customKcalPer100g} placeholder="热量" onChange={(event) => updateMealItem(item.id, 'customKcalPer100g', event.target.value)} /><i>kcal</i></div>
+                              </label>
+                            )}
+                            <div className="food-calorie-result">
+                              <span>{customFood ? (Number(item.customKcalPer100g) || 0) : food?.kcalPer100g || 0} kcal/100g</span>
+                              <strong>{formatNumber(calories)} <small>kcal</small></strong>
+                            </div>
+                            <button type="button" className="remove-food" onClick={() => removeMealItem(item.id)} aria-label={`删除${type}食物`}><Trash2 size={15} /></button>
                           </div>
-                          <button type="button" className="remove-food" onClick={() => removeMealItem(item.id)} aria-label={`删除${type}食物`}><Trash2 size={15} /></button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )
-              })}
+                        )
+                      })}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
-          </div>
 
-          <div className="form-grid compact form-section">
-            <label>
-              <span className="form-label">今日感受</span>
-              <input type="text" value={mood} onChange={(event) => setMood(event.target.value)} />
-            </label>
-          </div>
+            <div className="form-grid compact form-section">
+              <label>
+                <span className="form-label">今日感受</span>
+                <input type="text" value={mood} onChange={(event) => setMood(event.target.value)} />
+              </label>
+            </div>
 
-          <div className="modal-actions">
-            <p><CircleHelp size={15} /> 食物与运动热量均为估算值，具体以包装标示和实际强度为准。</p>
-            <button type="submit" className="primary-button"><Check size={17} /> 完成打卡</button>
-          </div>
+            {saveError && <p className="checkin-error" role="alert">{saveError}</p>}
+            <div className="modal-actions">
+              <p><CircleHelp size={15} /> 食物与运动热量均为估算值，具体以包装标示和实际强度为准。</p>
+              <button type="submit" className="primary-button" disabled={saving}><Check size={17} /> {saving ? '正在保存…' : '完成打卡'}</button>
+            </div>
+          </fieldset>
         </form>
       </section>
     </div>
@@ -922,20 +957,25 @@ export default function App() {
     const { error } = await saveRecord(record)
     if (error) {
       setToast(`保存失败：${error.message}`)
-      return
+      return { error }
     }
     setSelectedDate(parseDate(record.date))
     setPeriod('day')
     const person = PROFILES.find((item) => item.id === record.profileId)
-    setToast(`${person.name}的今日打卡已保存`)
-    const { error: activityError } = await logActivity({
-      profileId: record.profileId,
-      type: 'checkin',
-      recordDate: record.date,
-      calories: record.calories,
-      message: `${person.name}完成了今日打卡`,
-    })
-    if (activityError) setToast('打卡已保存，但活动记录暂时无法同步')
+    setToast(`${person.name} ${record.date} 的打卡已保存`)
+    try {
+      const { error: activityError } = await logActivity({
+        profileId: record.profileId,
+        type: 'checkin',
+        recordDate: record.date,
+        calories: record.calories,
+        message: `${person.name}完成了 ${record.date} 的打卡`,
+      })
+      if (activityError) setToast('打卡已保存，但活动记录暂时无法同步')
+    } catch {
+      setToast('打卡已保存，但活动记录暂时无法同步')
+    }
+    return { error: null }
   }
 
   const inspectRecord = (record) => {
@@ -1256,7 +1296,8 @@ export default function App() {
         onSubmit={handleSaveRecord}
         defaultDate={selectedDate}
         profileLock={configured && profile ? profile.id : null}
-        profileSettings={profile ? settings[profile.id] : settings[profileLock || 'lin']}
+        profileSettings={settings}
+        records={records}
       />
 
       <ResetDataModal

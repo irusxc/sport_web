@@ -16,6 +16,22 @@ export function FullScreenLoader({ label = '正在连接…' }) {
   )
 }
 
+export function AuthErrorScreen() {
+  const { error, retryProfile, signOut } = useAuth()
+  return (
+    <div className="auth-screen">
+      <div className="auth-card">
+        <span className="auth-brand"><Flame size={19} fill="currentColor" /></span>
+        <h1>暂时无法确认身份</h1>
+        <p className="auth-sub">身份加载未完成，无需重新选择。请检查网络后重试。</p>
+        <p className="auth-message error" role="alert">{error?.message || '连接暂时不可用'}</p>
+        <button type="button" className="auth-submit" onClick={retryProfile}>重新加载</button>
+        <button type="button" className="auth-link" onClick={() => signOut()}>退出并换一个账号</button>
+      </div>
+    </div>
+  )
+}
+
 export function LoginScreen() {
   const { signInWithPassword, signInWithOtp } = useAuth()
   const [email, setEmail] = useState('')
@@ -82,7 +98,7 @@ export function LoginScreen() {
 }
 
 export function ClaimScreen() {
-  const { claimProfile, signOut } = useAuth()
+  const { claimProfile, signOut, availableProfiles } = useAuth()
   const [busyId, setBusyId] = useState(null)
   const [message, setMessage] = useState('')
 
@@ -99,10 +115,10 @@ export function ClaimScreen() {
       <div className="auth-card">
         <span className="auth-brand"><Flame size={19} fill="currentColor" /></span>
         <h1>你是哪一位？</h1>
-        <p className="auth-sub">选择你的档案，之后的打卡都会记录到对应的人名下。</p>
+        <p className="auth-sub">仅首次使用需要选择。绑定后会自动记住身份，另一账号将自动使用剩余档案。</p>
 
         <div className="claim-list">
-          {PROFILES.map((profile) => (
+          {PROFILES.filter((profile) => availableProfiles.some((item) => item.id === profile.id)).map((profile) => (
             <button
               key={profile.id}
               type="button"

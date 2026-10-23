@@ -59,7 +59,7 @@ import { useRecords } from './records'
 import { useProfileSettings } from './settings'
 import { useActivity } from './activity'
 import ExercisePicker from './ExercisePicker'
-import { ClaimScreen, FullScreenLoader, LoginScreen } from './auth-ui'
+import { AuthErrorScreen, ClaimScreen, FullScreenLoader, LoginScreen } from './auth-ui'
 
 const ICONS = {
   overview: LayoutDashboard,
@@ -882,7 +882,7 @@ function ActivityPopover({ isOpen, onClose, activities, loading, profiles, onCle
 }
 
 export default function App() {
-  const { configured, session, profile, loading: authLoading, signOut } = useAuth()
+  const { configured, session, profile, loading: authLoading, error: authError, signOut } = useAuth()
   const {
     records,
     loading: recordsLoading,
@@ -1042,6 +1042,7 @@ export default function App() {
 
   if (configured) {
     if (authLoading) return <FullScreenLoader label="正在连接…" />
+    if (authError) return <AuthErrorScreen />
     if (!session) return <LoginScreen />
     if (!profile) return <ClaimScreen />
   }
